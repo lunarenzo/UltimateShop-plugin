@@ -1,0 +1,495 @@
+package cn.superiormc.ultimateshop.methods;
+
+import cn.superiormc.ultimateshop.UltimateShop;
+import cn.superiormc.ultimateshop.api.ShopHelper;
+import cn.superiormc.ultimateshop.managers.CacheManager;
+import cn.superiormc.ultimateshop.managers.ConfigManager;
+import cn.superiormc.ultimateshop.managers.ErrorManager;
+import cn.superiormc.ultimateshop.methods.Product.BuyProductMethod;
+import cn.superiormc.ultimateshop.methods.Product.SellProductMethod;
+import cn.superiormc.ultimateshop.objects.buttons.ObjectItem;
+import cn.superiormc.ultimateshop.objects.buttons.subobjects.ObjectDisplayItemStack;
+import cn.superiormc.ultimateshop.objects.caches.ObjectCache;
+import cn.superiormc.ultimateshop.objects.caches.ObjectUseTimesCache;
+import cn.superiormc.ultimateshop.objects.items.ThingMode;
+import cn.superiormc.ultimateshop.objects.items.prices.ObjectPrices;
+import cn.superiormc.ultimateshop.objects.menus.MenuType;
+import cn.superiormc.ultimateshop.utils.CommonUtil;
+import org.bukkit.entity.Player;
+import org.bukkit.inventory.meta.ItemMeta;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+public class ModifyDisplayItem {
+
+    public static ObjectDisplayItemStack modifyItem(Player player,
+                                                    int multi,
+                                                    ObjectDisplayItemStack addLoreDisplayItem,
+                                                    ObjectItem item,
+                                                    boolean buyMore) {
+        return modifyItem(player, multi, addLoreDisplayItem, item, buyMore, false, "general");
+    }
+
+    public static ObjectDisplayItemStack modifyItem(Player player,
+                                                    int multi,
+                                                    ObjectDisplayItemStack addLoreDisplayItem,
+                                                    ObjectItem item,
+                                                    boolean buyMore,
+                                                    boolean bedrock,
+                                                    String clickType) {
+        if (clickType == null) {
+            clickType = "general";
+        }
+        ItemMeta tempVal2 = addLoreDisplayItem.getMeta();
+        if (tempVal2 == null) {
+            return addLoreDisplayItem;
+        }
+        // 修改物品名称
+        if (item.getItemConfig().getString("display-name") != null) {
+            UltimateShop.methodUtil.setItemName(tempVal2, item.getDisplayName(player), player);
+        }
+        if (tempVal2.hasDisplayName()) {
+            UltimateShop.methodUtil.setItemName(tempVal2, CommonUtil.modifyString(player, UltimateShop.methodUtil.getItemName(tempVal2), "amount", String.valueOf(multi),
+                    "item-name", item.getDisplayName(player)), player);
+        }
+        List<String> addLore = new ArrayList<>();
+        if (tempVal2.hasLore()) {
+            addLore.addAll(CommonUtil.modifyList(player,
+                    UltimateShop.methodUtil.getItemLore(tempVal2),
+                    "amount", String.valueOf(multi),
+                    "item-name", item.getDisplayName(player)));
+        }
+        addLore.addAll(getModifiedLore(player, multi, item, buyMore, bedrock, clickType));
+        if (!addLore.isEmpty()) {
+            UltimateShop.methodUtil.setItemLore(tempVal2, addLore, player);
+        }
+        addLoreDisplayItem.setItemMeta(tempVal2);
+        return addLoreDisplayItem;
+    }
+
+    public static List<String> getModifiedLore(
+            Player player,
+            int multi,
+            ObjectItem item,
+            boolean buyMore,
+            boolean bedrock,
+            String clickType
+    ) {
+
+        List<String> resultLore = new ArrayList<>();
+
+        ObjectCache cache = CacheManager.cacheManager.getObjectCache(player);
+        if (cache == null) {
+            return resultLore;
+        }
+        ObjectUseTimesCache playerCache = cache.getUseTimesCache(item);
+        ObjectUseTimesCache serverCache = CacheManager.cacheManager.serverCache.getUseTimesCache(item);
+
+        Map<Character, ConditionResolver> conditionResolvers = buildConditionResolvers(player, item, clickType, buyMore, bedrock, playerCache, serverCache);
+
+        List<String> buyPrice = ObjectPrices.getDisplayName(player, multi,
+                item.getBuyPrice().take(player.getInventory(), player,
+                        playerCache.getBuyUseTimes(), multi, true).getResultMap(),
+                item.getBuyPrice().getMode(), false);
+        List<String> sellPrice = ObjectPrices.getDisplayName(player, multi,
+                item.getSellPrice().give(player, playerCache.getBuyUseTimes(), multi).getResultMapForSellMultiplierDisplay(player),
+                item.getSellPrice().getMode(), false);
+
+        for (String rawLine : item.getAddLore(player)) {
+
+            if (rawLine.endsWith("-i") || rawLine.endsWith("-m") || rawLine.endsWith("-b")) {
+                ErrorManager.errorManager.sendErrorMessage("§cYour display item add lore config is not updated, please reconfigure your " +
+                        "display item add lore configs at config.yml file! You can get latest config at plugin Wiki: https://ultimateshop.superiormc.cn/info/configuration-files .");
+            }
+
+            ParsedLine parsed = ParsedLine.parse(rawLine);
+
+            boolean condition = true;
+
+            if (parsed.isConditional()) {
+                condition = parsed.conditions.stream().allMatch(c -> c.negate != getConditionValue(conditionResolvers, c));
+            }
+
+            if (condition) {
+                String pureText = parsed.getPureText();
+
+                if (pureText.endsWith("{buy-price}") && parseEnableNewLineForPrice(item.getBuyPrice().getMode())) {
+                     if (!buyPrice.isEmpty()) {
+                        String prefix = pureText.replace("{buy-price}", "");
+                        if (!prefix.isEmpty()) {
+                            List<String> tempVal1 = new ArrayList<>();
+                            for (String line : buyPrice) {
+                                tempVal1.add(prefix + line);
+                            }
+                            resultLore.addAll(tempVal1);
+                        } else {
+                            resultLore.addAll(buyPrice);
+                        }
+                    }
+                } else if (pureText.endsWith("{sell-price}") && parseEnableNewLineForPrice(item.getSellPrice().getMode())) {
+                    if (!sellPrice.isEmpty()) {
+                        String prefix = pureText.replace("{sell-price}", "");
+                        if (!prefix.isEmpty()) {
+                            List<String> tempVal1 = new ArrayList<>();
+                            for (String line : sellPrice) {
+                                tempVal1.add(prefix + line);
+                            }
+                            resultLore.addAll(tempVal1);
+                        } else {
+                            resultLore.addAll(sellPrice);
+                        }
+                    }
+                } else {
+                    resultLore.add(pureText);
+                }
+            }
+        }
+
+        if (!resultLore.isEmpty()) {
+            resultLore = CommonUtil.modifyList(player, resultLore,
+                    "buy-price", ObjectPrices.getDisplayNameInLine(player, buyPrice, item.getBuyPrice().getMode()),
+                    "sell-price", ObjectPrices.getDisplayNameInLine(player, sellPrice, item.getSellPrice().getMode()),
+                    "buy-limit-player", String.valueOf(item.getPlayerBuyLimit(player)),
+                    "sell-limit-player", String.valueOf(item.getPlayerSellLimit(player)),
+                    "buy-limit-server", String.valueOf(item.getServerBuyLimit(player)),
+                    "sell-limit-server", String.valueOf(item.getServerSellLimit(player)),
+
+                    "buy-total-player", String.valueOf(playerCache.getTotalBuyUseTimes()),
+                    "sell-total-player", String.valueOf(playerCache.getTotalSellUseTimes()),
+                    "buy-total-server", String.valueOf(serverCache.getTotalBuyUseTimes()),
+                    "sell-total-server", String.valueOf(serverCache.getTotalSellUseTimes()),
+
+                    "buy-times-player", String.valueOf(playerCache.getBuyUseTimes()),
+                    "sell-times-player", String.valueOf(playerCache.getSellUseTimes()),
+
+                    "buy-refresh-player", playerCache.getBuyRefreshTimeDisplayName(player),
+                    "sell-refresh-player", playerCache.getSellRefreshTimeDisplayName(player),
+                    "buy-next-player", playerCache.getBuyRefreshTimeNextName(player),
+                    "sell-next-player", playerCache.getSellRefreshTimeNextName(player),
+
+                    "buy-times-server", String.valueOf(serverCache.getBuyUseTimes()),
+                    "sell-times-server", String.valueOf(serverCache.getSellUseTimes()),
+
+                    "buy-refresh-server", serverCache.getBuyRefreshTimeDisplayName(player),
+                    "sell-refresh-server", serverCache.getSellRefreshTimeDisplayName(player),
+                    "buy-next-server", serverCache.getBuyRefreshTimeNextName(player),
+                    "sell-next-server", serverCache.getSellRefreshTimeNextName(player),
+
+                    "last-buy-player", playerCache.getBuyLastTimeName(),
+                    "last-sell-player", playerCache.getSellLastTimeName(),
+                    "last-buy-server", serverCache.getBuyLastTimeName(),
+                    "last-sell-server", serverCache.getSellLastTimeName(),
+
+                    "last-reset-buy-player", playerCache.getBuyLastResetTimeName(),
+                    "last-reset-sell-player", playerCache.getSellLastResetTimeName(),
+                    "last-reset-buy-server", serverCache.getBuyLastResetTimeName(),
+                    "last-reset-sell-server", serverCache.getSellLastResetTimeName(),
+
+                    "buy-click", getBuyClickPlaceholder(player, multi, item, clickType),
+                    "sell-click", getSellClickPlaceholder(player, multi, item, clickType),
+                    "amount", String.valueOf(multi),
+                    "item-name", item.getDisplayName(player)
+            );
+        }
+
+        return resultLore;
+    }
+
+    private static class ConditionElement {
+        final char key;
+        final boolean negate;
+        final String argument;
+
+        ConditionElement(char key, boolean negate) {
+            this(key, negate, null);
+        }
+
+        ConditionElement(char key, boolean negate, String argument) {
+            this.key = key;
+            this.negate = negate;
+            this.argument = argument;
+        }
+    }
+
+    @FunctionalInterface
+    private interface ConditionResolver {
+        boolean resolve(String argument);
+    }
+
+    private static class ParsedLine {
+
+        final List<ConditionElement> conditions;
+
+        final boolean conditional;
+
+        final String text;
+
+        ParsedLine(List<ConditionElement> conditions, String text) {
+            this.conditions = conditions;
+            this.conditional = !conditions.isEmpty();
+            this.text = text;
+        }
+
+        boolean isConditional() {
+            return conditional;
+        }
+
+        String getPureText() {
+            return text;
+        }
+
+        static ParsedLine parse(String line) {
+            if (line == null) {
+                line = "";
+            }
+
+            List<ConditionElement> list = new ArrayList<>();
+            StringBuilder out = new StringBuilder();
+
+            int idx = 0;
+            int len = line.length();
+
+            while (idx < len) {
+                char ch = line.charAt(idx);
+
+                if (ch == '(' && idx + 2 < len && line.charAt(idx + 1) == '@') {
+                    int end = line.indexOf(')', idx);
+                    if (end != -1) {
+                        String inside = line.substring(idx + 2, end);
+                        extractConditions(inside, list, true);
+                        idx = end + 1;
+                        continue;
+                    }
+                }
+
+                if (ch == '@' && idx + 1 < len) {
+                    char key = line.charAt(idx + 1);
+                    if (Character.isLetter(key)) {
+                        if (idx + 2 < len && line.charAt(idx + 2) == '[') {
+                            int end = line.indexOf(']', idx + 3);
+                            if (end != -1) {
+                                list.add(new ConditionElement(key, false, line.substring(idx + 3, end)));
+                                idx = end + 1;
+                                continue;
+                            }
+                        }
+                        list.add(new ConditionElement(key, false));
+                        idx += 2;
+                        continue;
+                    }
+                }
+
+                out.append(ch);
+                idx++;
+            }
+
+            if (out.toString().trim().isEmpty() && !list.isEmpty()) {
+                return new ParsedLine(list, "");
+            }
+
+            return new ParsedLine(list, out.toString());
+        }
+
+        private static void extractConditions(String inside, List<ConditionElement> list, boolean negate) {
+            int i = 0;
+            while (i < inside.length()) {
+                char c = inside.charAt(i);
+
+                if (c == '@' && i + 1 < inside.length()) {
+                    char k = inside.charAt(i + 1);
+                    if (Character.isLetter(k)) {
+                        if (i + 2 < inside.length() && inside.charAt(i + 2) == '[') {
+                            int end = inside.indexOf(']', i + 3);
+                            if (end != -1) {
+                                list.add(new ConditionElement(k, negate, inside.substring(i + 3, end)));
+                                i = end + 1;
+                                continue;
+                            }
+                        }
+                        list.add(new ConditionElement(k, negate));
+                        i += 2;
+                        continue;
+                    }
+                }
+
+                if (Character.isLetter(c)) {
+                    if (i + 1 < inside.length() && inside.charAt(i + 1) == '[') {
+                        int end = inside.indexOf(']', i + 2);
+                        if (end != -1) {
+                            list.add(new ConditionElement(c, negate, inside.substring(i + 2, end)));
+                            i = end + 1;
+                            continue;
+                        }
+                    }
+                    list.add(new ConditionElement(c, negate));
+                    i++;
+                    continue;
+                }
+
+                i++;
+            }
+        }
+    }
+
+    private static boolean getConditionValue(Map<Character, ConditionResolver> conditionResolvers, ConditionElement condition) {
+        ConditionResolver resolver = conditionResolvers.get(condition.key);
+        return resolver != null && resolver.resolve(condition.argument);
+    }
+
+    private static Map<Character, ConditionResolver> buildConditionResolvers(
+            Player player,
+            ObjectItem item,
+            String clickType,
+            boolean buyMore,
+            boolean bedrock,
+            ObjectUseTimesCache p,
+            ObjectUseTimesCache s
+    ) {
+        Map<Character, ConditionResolver> map = new HashMap<>();
+
+        map.put('a', ignored -> !item.getBuyPrice().empty);
+        map.put('b', ignored -> !item.getSellPrice().empty);
+        map.put('c', ignored -> item.getPlayerBuyLimit(player) != -1);
+        map.put('d', ignored -> item.getServerBuyLimit(player) != -1);
+        map.put('e', ignored -> item.getPlayerSellLimit(player) != -1);
+        map.put('f', ignored -> item.getServerSellLimit(player) != -1);
+
+        map.put('g', ignored -> item.getPlayerBuyLimit(player) > 0 && p.getBuyUseTimes() >= item.getPlayerBuyLimit(player));
+        map.put('h', ignored -> item.getPlayerSellLimit(player) > 0 && p.getSellUseTimes() >= item.getPlayerSellLimit(player));
+
+        map.put('i', ignored -> item.getServerBuyLimit(player) > 0 && s.getBuyUseTimes() >= item.getServerBuyLimit(player));
+        map.put('j', ignored -> item.getServerSellLimit(player) > 0 && s.getSellUseTimes() >= item.getServerSellLimit(player));
+
+        map.put('k', ignored -> item.getBuyMore());
+        map.put('l', ignored -> item.isAllowFavourite());
+        map.put('m', ignored -> !item.getSellPrice().empty && item.isEnableSellAll());
+        map.put('n', ignored -> (!item.getBuyPrice().empty && parseClickType(item, clickType, true)) ||
+                (!item.getSellPrice().empty && parseClickType(item, clickType, false)));
+        map.put('o', ignored -> ShopHelper.getOpeningMenu(player) != null && ShopHelper.getOpeningMenu(player).getType() == MenuType.Favourite);
+
+        map.put('p', ignored -> buyMore);
+        map.put('q', ignored -> !buyMore);
+
+        map.put('u', ignored -> parseClickType(item, clickType, true));
+        map.put('v', ignored -> parseClickType(item, clickType, false));
+        map.put('w', ignored -> !clickType.equals("general"));
+
+        map.put('x', ignored -> bedrock);
+        map.put('y', ignored -> !bedrock);
+        map.put('z', argument -> ShopHelper.isSellMultiplierActive(player, argument));
+
+        return map;
+    }
+
+    private static String getBuyClickPlaceholder(Player player, int multi, ObjectItem item, String clickType) {
+        if (!ConfigManager.configManager.getBoolean("placeholder.click.enabled")) {
+            if (item.getSellPrice().empty || clickType.equals("buy")) {
+                return ConfigManager.configManager.getStringWithLang(player, "placeholder.click.buy-with-no-sell", "", "amount", String.valueOf(multi));
+            } else {
+                return ConfigManager.configManager.getStringWithLang(player, "placeholder.click.buy", "", "amount", String.valueOf(multi));
+            }
+        }
+        String s = "";
+        switch (BuyProductMethod.startBuy(item, player, false, true, multi).getStatus()) {
+            case ERROR:
+                s = ConfigManager.configManager.getStringWithLang(player, "placeholder.click.error", "",  "amount", String.valueOf(multi));
+                break;
+            case PERMISSION:
+            case REQUIRE_CONDITION_NOT_MEET:
+                s = ConfigManager.configManager.getStringWithLang(player, "placeholder.click.buy-condition-not-meet", "",  "amount", String.valueOf(multi));
+                break;
+            case PLAYER_MAX:
+                s = ConfigManager.configManager.getStringWithLang(player, "placeholder.click.buy-max-limit-player", "", "amount", String.valueOf(multi));
+                break;
+            case SERVER_MAX:
+                s = ConfigManager.configManager.getStringWithLang(player, "placeholder.click.buy-max-limit-server", "", "amount", String.valueOf(multi));
+                break;
+            case NOT_ENOUGH :
+                s = ConfigManager.configManager.getStringWithLang(player, "placeholder.click.buy-price-not-enough", "", "amount", String.valueOf(multi));
+                break;
+            case DONE :
+                if (item.getSellPrice().empty || clickType.equals("buy")) {
+                    s = ConfigManager.configManager.getStringWithLang(player, "placeholder.click.buy-with-no-sell", "", "amount", String.valueOf(multi));
+                } else {
+                    s = ConfigManager.configManager.getStringWithLang(player, "placeholder.click.buy", "", "amount", String.valueOf(multi));
+                }
+                break;
+        }
+        return s;
+    }
+
+    private static String getSellClickPlaceholder(Player player, int multi, ObjectItem item, String clickType) {
+        if (!ConfigManager.configManager.getBoolean("placeholder.click.enabled")) {
+            if (item.getBuyPrice().empty || clickType.equals("sell")) {
+                return ConfigManager.configManager.getStringWithLang(player, "placeholder.click.sell-with-no-buy", "",  "amount", String.valueOf(multi));
+            } else {
+                return ConfigManager.configManager.getStringWithLang(player, "placeholder.click.sell", "",  "amount", String.valueOf(multi));
+            }
+        }
+        String s;
+        switch (SellProductMethod.startSell(item, player, false, true, multi).getStatus()) {
+            case ERROR :
+                s = ConfigManager.configManager.getStringWithLang(player, "placeholder.click.error", "",  "amount", String.valueOf(multi));
+                break;
+            case PERMISSION:
+            case REQUIRE_CONDITION_NOT_MEET:
+                s = ConfigManager.configManager.getStringWithLang(player, "placeholder.click.sell-condition-not-meet", "",  "amount", String.valueOf(multi));
+                break;
+            case PLAYER_MAX:
+                s = ConfigManager.configManager.getStringWithLang(player, "placeholder.click.sell-max-limit-player", "",  "amount", String.valueOf(multi));
+                break;
+            case SERVER_MAX:
+                s = ConfigManager.configManager.getStringWithLang(player, "placeholder.click.sell-max-limit-server", "",  "amount", String.valueOf(multi));
+                break;
+            case NOT_ENOUGH :
+                s = ConfigManager.configManager.getStringWithLang(player, "placeholder.click.sell-price-not-enough", "",  "amount", String.valueOf(multi));
+                break;
+            case DONE :
+                if (item.getBuyPrice().empty || clickType.equals("sell")) {
+                    s = ConfigManager.configManager.getStringWithLang(player, "placeholder.click.sell-with-no-buy", "",  "amount", String.valueOf(multi));
+                } else {
+                    s = ConfigManager.configManager.getStringWithLang(player, "placeholder.click.sell", "",  "amount", String.valueOf(multi));
+                }
+                break;
+            default :
+                s = "Unknown";
+                break;
+        }
+        return s;
+    }
+
+    private static boolean parseClickType(ObjectItem item, String clickType, boolean buyOrSell) {
+        if (clickType == null || clickType.equals("general")) {
+            return true;
+        }
+        switch (clickType) {
+            case "buy" :
+                return buyOrSell;
+            case "sell" :
+                return !buyOrSell;
+            case "sell-all" :
+                return !buyOrSell && item.isEnableSellAll();
+            case "buy-or-sell" :
+                if (item.getBuyPrice().empty && !item.getSellPrice().empty) {
+                    return !buyOrSell;
+                } else {
+                    return buyOrSell;
+                }
+            default:
+                return false;
+        }
+    }
+
+    private static boolean parseEnableNewLineForPrice(ThingMode mode) {
+        return switch (mode) {
+            case ALL, CLASSIC_ALL ->
+                    ConfigManager.configManager.getString("placeholder.price.split-symbol-all").equals(";;");
+            case ANY, CLASSIC_ANY ->
+                    ConfigManager.configManager.getString("placeholder.price.split-symbol-any").equals(";;");
+            default -> false;
+        };
+    }
+}

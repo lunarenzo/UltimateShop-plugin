@@ -1,0 +1,256 @@
+package cn.superiormc.ultimateshop.methods.Product;
+
+import cn.superiormc.ultimateshop.api.ItemFinishTransactionEvent;
+import cn.superiormc.ultimateshop.api.ItemPreTransactionEvent;
+
+import cn.superiormc.ultimateshop.objects.caches.ObjectCache;
+import cn.superiormc.ultimateshop.managers.CacheManager;
+import cn.superiormc.ultimateshop.managers.ConfigManager;
+import cn.superiormc.ultimateshop.managers.LanguageManager;
+import cn.superiormc.ultimateshop.methods.ProductTradeStatus;
+import cn.superiormc.ultimateshop.objects.ObjectThingRun;
+import cn.superiormc.ultimateshop.objects.caches.ObjectUseTimesCache;
+import cn.superiormc.ultimateshop.objects.items.GiveResult;
+import cn.superiormc.ultimateshop.objects.items.ItemStorage;
+import cn.superiormc.ultimateshop.objects.items.prices.ObjectPrices;
+import cn.superiormc.ultimateshop.objects.buttons.ObjectItem;
+import cn.superiormc.ultimateshop.objects.items.TakeResult;
+import cn.superiormc.ultimateshop.utils.CommonUtil;
+import cn.superiormc.ultimateshop.utils.TextUtil;
+import cn.superiormc.ultimateshop.utils.TransactionLogger;
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
+
+public class BuyProductMethod {
+
+    public static ProductTradeStatus startBuy(ObjectItem item, Player player, boolean forceDisplayMessage) {
+        return startBuy(item, player, forceDisplayMessage, false, 1);
+    }
+
+    public static ProductTradeStatus startBuy(ObjectItem item,
+                                               Player player,
+                                               boolean forceDisplayMessage,
+                                               boolean notCost,
+                                               int multi) {
+        return startBuy(ItemStorage.of(player.getInventory()), item, player, forceDisplayMessage, notCost, multi);
+    }
+
+    public static ProductTradeStatus startBuy(Inventory inventory,
+                                               ObjectItem item,
+                                               Player player,
+                                               boolean forceDisplayMessage,
+                                               boolean notCost,
+                                               int multi) {
+        return startBuy(ItemStorage.of(inventory), item, player, forceDisplayMessage, notCost, multi);
+    }
+
+    public static ProductTradeStatus startBuy(ItemStack[] contents,
+                                               ObjectItem item,
+                                               Player player,
+                                               boolean forceDisplayMessage,
+                                               boolean notCost,
+                                               int multi) {
+        return startBuy(ItemStorage.of(contents), item, player, forceDisplayMessage, notCost, multi);
+    }
+
+    public static ProductTradeStatus startBuy(ItemStorage storage,
+                                               ObjectItem item,
+                                               Player player,
+                                               boolean forceDisplayMessage,
+                                               boolean notCost,
+                                               int multi) {
+        if (item == null) {
+            return ProductTradeStatus.ERROR;
+        }
+        if (item.getShopObject().getProductNotHidden(player, item) == null) {
+            return ProductTradeStatus.ERROR;
+        }
+        if (multi >= 10000) {
+            multi = 9999;
+        }
+        if (!ConfigManager.configManager.getBoolean("force-display-fail-message")) {
+            forceDisplayMessage = false;
+        }
+        boolean shouldSendMessage = storage.isPlayerInventory() && !notCost && (forceDisplayMessage || !item.getHideMessage());
+        if (!item.getBuyCondition(player, multi)) {
+            if (shouldSendMessage) {
+                LanguageManager.languageManager.sendStringText(player,
+                        "buy-condition-not-meet",
+                        "product",
+                        item.getProduct());
+            }
+            return ProductTradeStatus.PERMISSION;
+        }
+        if (item.getBuyPrice().empty) {
+            return ProductTradeStatus.ERROR;
+        }
+        ObjectCache tempVal3 = CacheManager.cacheManager.getObjectCache(player);
+        ObjectCache tempVal11 = CacheManager.cacheManager.serverCache;
+        if (tempVal3 == null || tempVal11 == null || tempVal3.canNotModify() || tempVal11.canNotModify()) {
+            LanguageManager.languageManager.sendStringText(player,
+                    "error.player-not-found",
+                    "player",
+                    player.getName());
+            return ProductTradeStatus.ERROR;
+        }
+        // limit
+        int playerUseTimes = 0;
+        int serverUseTimes = 0;
+        ObjectUseTimesCache tempVal9 = tempVal3.getUseTimesCache(item);
+        ObjectUseTimesCache tempVal8 = tempVal11.getUseTimesCache(item);
+        if (tempVal9 != null) {
+            tempVal9.refreshTimes();
+            playerUseTimes = tempVal9.getBuyUseTimes();
+        } else {
+            return ProductTradeStatus.ERROR;
+        }
+        if (item.getPlayerBuyLimit(player) != -1 &&
+                playerUseTimes + multi > item.getPlayerBuyLimit(player)) {
+            if (shouldSendMessage) {
+                LanguageManager.languageManager.sendStringText(player,
+                        "limit-reached-buy-player",
+                        "item",
+                        item.getDisplayName(player),
+                        "times",
+                        String.valueOf(playerUseTimes),
+                        "limit",
+                        String.valueOf(item.getPlayerBuyLimit(player)),
+                        "refresh",
+                        tempVal9.getBuyRefreshTimeDisplayName(player),
+                        "next",
+                        tempVal9.getBuyRefreshTimeNextName(player));
+
+            }
+            return ProductTradeStatus.PLAYER_MAX;
+        }
+        ObjectPrices tempVal5 = item.getBuyPrice();
+        if (tempVal8 != null) {
+            tempVal8.refreshTimes();
+            serverUseTimes = tempVal8.getBuyUseTimes();
+        } else {
+            return ProductTradeStatus.ERROR;
+        }
+        if (item.getServerBuyLimit(player) != -1 &&
+                serverUseTimes + multi > item.getServerBuyLimit(player)) {
+            if (shouldSendMessage) {
+                LanguageManager.languageManager.sendStringText(player,
+                        "limit-reached-buy-server",
+                        "item",
+                        item.getDisplayName(player),
+                        "times",
+                        String.valueOf(serverUseTimes),
+                        "limit",
+                        String.valueOf(item.getServerBuyLimit(player)),
+                        "refresh",
+                        tempVal8.getBuyRefreshTimeDisplayName(player),
+                        "next",
+                        tempVal8.getBuyRefreshTimeNextName(player));
+            }
+            return ProductTradeStatus.SERVER_MAX;
+        }
+        GiveResult giveResult = null;
+        TakeResult takeResult = tempVal5.take(storage, player, playerUseTimes, multi, false);
+        // API
+        if (!notCost) {
+            giveResult = item.getReward().give(player, playerUseTimes, multi);
+            ItemPreTransactionEvent event = new ItemPreTransactionEvent(true, player, multi, item, giveResult, takeResult);
+            Bukkit.getServer().getPluginManager().callEvent(event);
+            if (event.isCancelled()) {
+                return ProductTradeStatus.API_CANCEL;
+            }
+        }
+        // price
+        if (!takeResult.getResultBoolean()) {
+            if (shouldSendMessage) {
+                LanguageManager.languageManager.sendStringText(player,
+                        "buy-price-not-enough",
+                        "item",
+                        item.getDisplayName(player),
+                        "amount",
+                        String.valueOf(multi * item.getDisplayItemObject().getAmountPlaceholder(player)),
+                        "price",
+                        ObjectPrices.getDisplayNameInLine(player,
+                                multi,
+                                takeResult.getResultMap(),
+                                tempVal5.getMode(),
+                                !ConfigManager.configManager.getBoolean("placeholder.status.can-used-everywhere")));
+            }
+            return ProductTradeStatus.NOT_ENOUGH;
+        }
+        // single thing condition not meet
+        if (!takeResult.getConditionBoolean()) {
+            if (shouldSendMessage) {
+                LanguageManager.languageManager.sendStringText(player,
+                        "buy-condition-not-meet",
+                        "product",
+                        item.getProduct());
+            }
+            return ProductTradeStatus.REQUIRE_CONDITION_NOT_MEET;
+        }
+        if (notCost) {
+            return new ProductTradeStatus(ProductTradeStatus.Status.DONE, takeResult);
+        }
+        // single thing condition not meet
+        if (!giveResult.getConditionBoolean()) {
+            if (shouldSendMessage) {
+                LanguageManager.languageManager.sendStringText(player,
+                        "buy-condition-not-meet",
+                        "product",
+                        item.getProduct());
+            }
+            return ProductTradeStatus.REQUIRE_CONDITION_NOT_MEET;
+        }
+        // 尝试给物品
+        if (!giveResult.give(playerUseTimes, multi, player, 1)) {
+            if (shouldSendMessage) {
+                LanguageManager.languageManager.sendStringText(player, "inventory-full");
+            }
+            return ProductTradeStatus.INVENTORY_FULL;
+        }
+        // 扣钱
+        takeResult.take(playerUseTimes, multi, storage, player);
+        int calculateAmount = multi * item.getDisplayItemObject().getAmountPlaceholder(player);
+        // 执行动作
+        item.getBuyAction().runAllActions(new ObjectThingRun(player, playerUseTimes, multi, calculateAmount));
+        // limit+1
+        if (ConfigManager.configManager.getBoolean("debug")) {
+            int newValue = tempVal9.getBuyUseTimes() + multi;
+            TextUtil.sendMessage(null, TextUtil.pluginPrefix() + " §aSet player limit value to " + newValue + "!");
+        }
+        tempVal9.setBuyUseTimes(tempVal9.getBuyUseTimes() + multi);
+        tempVal9.setLastBuyTime(CommonUtil.getNowTime());
+        tempVal9.setCooldownBuyTime();
+        if (ConfigManager.configManager.getBoolean("debug")) {
+            int newValue = tempVal8.getBuyUseTimes() + multi;
+            TextUtil.sendMessage(null, TextUtil.pluginPrefix() + " §aSet server limit value to " + newValue + "!");
+        }
+        tempVal8.setBuyUseTimes(tempVal8.getBuyUseTimes() + multi);
+        tempVal8.setLastBuyTime(CommonUtil.getNowTime());
+        tempVal8.setCooldownBuyTime();
+        if (!item.getHideMessage() && !giveResult.empty && !takeResult.empty) {
+            LanguageManager.languageManager.sendStringText(player,
+                    "success-buy",
+                    "item",
+                    item.getDisplayName(player),
+                    "price",
+                    ObjectPrices.getDisplayNameInLine(player,
+                            multi,
+                            takeResult.getResultMap(),
+                            tempVal5.getMode(),
+                            !ConfigManager.configManager.getBoolean("placeholder.status.can-used-everywhere")),
+                    "amount",
+                    String.valueOf(calculateAmount));
+        }
+        TransactionLogger.log(player, item, calculateAmount, String.valueOf(1.0), "BUY",
+                ObjectPrices.getDisplayNameInLine(player,
+                        multi,
+                        takeResult.getResultMap(),
+                        tempVal5.getMode(),
+                        !ConfigManager.configManager.getBoolean("placeholder.status.can-used-everywhere")));
+        ItemFinishTransactionEvent event = new ItemFinishTransactionEvent(true, player, multi, item);
+        Bukkit.getServer().getPluginManager().callEvent(event);
+        return new ProductTradeStatus(ProductTradeStatus.Status.DONE, takeResult, giveResult, multi);
+    }
+}

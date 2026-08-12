@@ -1,0 +1,144 @@
+package cn.superiormc.ultimateshop.utils;
+
+import cn.superiormc.ultimateshop.UltimateShop;
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
+import org.bukkit.Bukkit;
+import org.bukkit.Location;
+import org.bukkit.entity.Entity;
+import org.bukkit.scheduler.BukkitTask;
+
+import java.util.concurrent.TimeUnit;
+
+public class SchedulerUtil {
+
+    private BukkitTask bukkitTask;
+
+    private ScheduledTask scheduledTask;
+
+    public SchedulerUtil(BukkitTask bukkitTask) {
+        this.bukkitTask = bukkitTask;
+    }
+
+    public SchedulerUtil(ScheduledTask scheduledTask) {
+        this.scheduledTask = scheduledTask;
+    }
+
+    public void cancel() {
+        if (UltimateShop.isFolia) {
+            scheduledTask.cancel();
+        } else {
+            bukkitTask.cancel();
+        }
+    }
+
+    // 在主线程上运行任务
+    public static void runSync(Runnable task) {
+        if (UltimateShop.isFolia) {
+            Bukkit.getGlobalRegionScheduler().execute(UltimateShop.instance, task);
+        } else {
+            Bukkit.getScheduler().runTask(UltimateShop.instance, task);
+        }
+    }
+
+    public static void runSync(Entity entity, Runnable task) {
+        if (UltimateShop.isFolia) {
+            entity.getScheduler().run(UltimateShop.instance, scheduledTask -> task.run(), null);
+        } else {
+            Bukkit.getScheduler().runTask(UltimateShop.instance, task);
+        }
+    }
+
+    public static void runSync(Location location, Runnable task) {
+        if (UltimateShop.isFolia) {
+            Bukkit.getRegionScheduler().run(UltimateShop.instance, location, scheduledTask -> task.run());
+        } else {
+            Bukkit.getScheduler().runTask(UltimateShop.instance, task);
+        }
+    }
+
+    // 在异步线程上运行任务
+    public static void runTaskAsynchronously(Runnable task) {
+        if (UltimateShop.isFolia) {
+            Bukkit.getAsyncScheduler().runNow(UltimateShop.instance, scheduledTask -> task.run());
+        } else {
+            Bukkit.getScheduler().runTaskAsynchronously(UltimateShop.instance, task);
+        }
+    }
+
+    // 延迟执行任务
+    public static SchedulerUtil runTaskLater(Runnable task, long delayTicks) {
+        if (UltimateShop.isFolia) {
+            if (delayTicks <= 0) {
+                delayTicks = 1;
+            }
+            return new SchedulerUtil(Bukkit.getGlobalRegionScheduler().runDelayed(UltimateShop.instance,
+                    scheduledTask -> task.run(), delayTicks));
+        } else {
+            return new SchedulerUtil(Bukkit.getScheduler().runTaskLater(UltimateShop.instance, task, delayTicks));
+        }
+    }
+
+    // 定时循环任务
+    public static SchedulerUtil runTaskTimer(Runnable task, long delayTicks, long periodTicks) {
+        if (UltimateShop.isFolia) {
+            return new SchedulerUtil(Bukkit.getGlobalRegionScheduler().runAtFixedRate(UltimateShop.instance,
+                    scheduledTask -> task.run(), delayTicks, periodTicks));
+        } else {
+            return new SchedulerUtil(Bukkit.getScheduler().runTaskTimer(UltimateShop.instance, task, delayTicks, periodTicks));
+        }
+    }
+
+    public static SchedulerUtil runTaskTimerAsynchronously(Runnable task, long delayTicks, long periodTicks) {
+        if (UltimateShop.isFolia) {
+            return new SchedulerUtil(Bukkit.getAsyncScheduler().runAtFixedRate(UltimateShop.instance,
+                    scheduledTask -> task.run(), delayTicks * 50L, periodTicks * 50L, TimeUnit.MILLISECONDS));
+        } else {
+            return new SchedulerUtil(Bukkit.getScheduler().runTaskTimerAsynchronously(UltimateShop.instance, task, delayTicks, periodTicks));
+        }
+    }
+
+    public static SchedulerUtil runTaskTimer(Location location, Runnable task, long delayTicks, long periodTicks) {
+        if (UltimateShop.isFolia) {
+            return new SchedulerUtil(Bukkit.getRegionScheduler().runAtFixedRate(
+                    UltimateShop.instance,
+                    location,
+                    scheduledTask -> task.run(),
+                    delayTicks,
+                    periodTicks
+            ));
+        } else {
+            return runTaskTimer(task, delayTicks, periodTicks);
+        }
+    }
+
+    // 延迟执行任务
+    public static SchedulerUtil runTaskLaterAsynchronously(Runnable task, long delayTicks) {
+        if (UltimateShop.isFolia) {
+            return new SchedulerUtil(Bukkit.getGlobalRegionScheduler().runDelayed(UltimateShop.instance,
+                    scheduledTask -> task.run(), delayTicks));
+        } else {
+            return new SchedulerUtil(Bukkit.getScheduler().runTaskLaterAsynchronously(UltimateShop.instance, task, delayTicks));
+        }
+    }
+
+    public static SchedulerUtil runTaskLater(Location location, Runnable task, long delayTicks) {
+        if (UltimateShop.isFolia) {
+            if (delayTicks <= 0) delayTicks = 1;
+            return new SchedulerUtil(Bukkit.getRegionScheduler().runDelayed(
+                    UltimateShop.instance, location, scheduledTask -> task.run(), delayTicks));
+        } else {
+            return new SchedulerUtil(Bukkit.getScheduler().runTaskLater(UltimateShop.instance, task, delayTicks));
+        }
+    }
+
+    public static SchedulerUtil runTaskLater(Entity entity, Runnable task, long delayTicks) {
+        if (UltimateShop.isFolia) {
+            if (delayTicks <= 0) delayTicks = 1;
+            return new SchedulerUtil(entity.getScheduler().runDelayed(
+                    UltimateShop.instance,  scheduledTask -> task.run(), null, delayTicks));
+        } else {
+            return new SchedulerUtil(Bukkit.getScheduler().runTaskLater(UltimateShop.instance, task, delayTicks));
+        }
+    }
+
+}

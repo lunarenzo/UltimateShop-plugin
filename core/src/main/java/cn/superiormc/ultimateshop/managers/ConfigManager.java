@@ -1,0 +1,478 @@
+package cn.superiormc.ultimateshop.managers;
+
+import cn.superiormc.ultimateshop.UltimateShop;
+import cn.superiormc.ultimateshop.objects.ObjectSharedUseTimes;
+import cn.superiormc.ultimateshop.objects.sellchests.ObjectSellChest;
+import cn.superiormc.ultimateshop.objects.ObjectSellStick;
+import cn.superiormc.ultimateshop.objects.ObjectShop;
+import cn.superiormc.ultimateshop.objects.buttons.AbstractButton;
+import cn.superiormc.ultimateshop.objects.items.subobjects.ObjectConditionalPlaceholder;
+import cn.superiormc.ultimateshop.objects.items.subobjects.ObjectCustomPlaceholder;
+import cn.superiormc.ultimateshop.objects.items.subobjects.ObjectRandomPlaceholder;
+import cn.superiormc.ultimateshop.objects.menus.ObjectFavouriteMenu;
+import cn.superiormc.ultimateshop.objects.menus.ObjectMenu;
+import cn.superiormc.ultimateshop.objects.menus.ObjectSearchMenu;
+import cn.superiormc.ultimateshop.utils.CommonUtil;
+import cn.superiormc.ultimateshop.utils.MathUtil;
+import cn.superiormc.ultimateshop.utils.TextUtil;
+import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.entity.Player;
+import org.bukkit.event.inventory.ClickType;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataType;
+
+import java.io.File;
+import java.util.*;
+
+import static cn.superiormc.ultimateshop.managers.SellChestManager.SELL_CHEST_ID;
+import static cn.superiormc.ultimateshop.objects.ObjectSellStick.SELL_STICK_ID;
+
+public class ConfigManager {
+
+    public static ConfigManager configManager;
+
+    public FileConfiguration config;
+
+    public FileConfiguration editorEnableConfirmConfig;
+
+    private File editorEnableConfirmFile;
+
+    public Map<String, ObjectShop> shopConfigs = new HashMap<>();
+
+    public Map<String, ObjectRandomPlaceholder> randomPlaceholders = new HashMap<>();
+
+    public Map<String, ObjectCustomPlaceholder> customPlaceholders = new HashMap<>();
+
+    public Map<String, ObjectConditionalPlaceholder> conditionalPlaceholders = new HashMap<>();
+
+    public Map<String, ObjectSharedUseTimes> sharedUseTimesMap = new HashMap<>();
+
+    public Map<String, ObjectSellStick> sellStickMap = new HashMap<>();
+
+    public Map<String, ObjectSellChest> sellChestMap = new HashMap<>();
+
+    public ConfigManager() {
+        configManager = this;
+        UltimateShop.instance.saveDefaultConfig();
+        this.config = UltimateShop.instance.getConfig();
+        loadEditorEnableConfirmConfig();
+        if (!UltimateShop.freeVersion) {
+            initSharedUseTimesConfigs();
+        }
+        initShopConfigs();
+        loadShopConfigs();
+        initMenuConfigs();
+        if (!UltimateShop.freeVersion) {
+            initRandomPlaceholder();
+            initCustomPlaceholder();
+            initConditionalPlaceholder();
+            initSellStickConfigs();
+            if (!UltimateShop.isFolia && ConfigManager.configManager.getBoolean("sell.sell-chest.enabled")) {
+                initSellChestConfigs();
+            }
+        }
+        MathUtil.init();
+    }
+
+    private void initShopConfigs() {
+        File dir = new File(UltimateShop.instance.getDataFolder(), "shops");
+        if (!dir.exists()) {
+            dir.mkdir();
+        }
+        for (File file : CommonUtil.getYamlFiles(dir)) {
+            String fileName = file.getName();
+            if (fileName.endsWith(".yml")) {
+                String substring = fileName.substring(0, fileName.length() - 4);
+                shopConfigs.put(substring,
+                        new ObjectShop(substring, YamlConfiguration.loadConfiguration(file)));
+                TextUtil.sendMessage(null, TextUtil.pluginPrefix() + " §fLoaded shop: " + fileName + "!");
+            }
+        }
+    }
+
+    private void initSharedUseTimesConfigs() {
+        File dir = new File(UltimateShop.instance.getDataFolder(), "shared_use_times");
+        if (!dir.exists()) {
+            dir.mkdir();
+        }
+        for (File file : CommonUtil.getYamlFiles(dir)) {
+            String fileName = file.getName();
+            if (fileName.endsWith(".yml")) {
+                String substring = fileName.substring(0, fileName.length() - 4);
+                sharedUseTimesMap.put(substring, new ObjectSharedUseTimes(substring, YamlConfiguration.loadConfiguration(file)));
+                TextUtil.sendMessage(null, TextUtil.pluginPrefix() + " §fLoaded shared use times setting: " + fileName + "!");
+            }
+        }
+    }
+
+    private void loadShopConfigs() {
+        for (ObjectShop shop : shopConfigs.values()) {
+            shop.initCopyProducts();
+            shop.initMenus();
+        }
+    }
+
+    private void initMenuConfigs() {
+        File dir = new File(UltimateShop.instance.getDataFolder(), "menus");
+        if (!dir.exists()) {
+            dir.mkdir();
+        }
+        for (File file : CommonUtil.getYamlFiles(dir)) {
+            String fileName = file.getName();
+            if (fileName.endsWith(".yml")) {
+                String substring = fileName.substring(0, fileName.length() - 4);
+                if (ObjectMenu.notCommonMenuNames.contains(substring)) {
+                    continue;
+                }
+                if (ObjectMenu.commonMenus.containsKey(substring)) {
+                    continue;
+                }
+                YamlConfiguration menuConfig = YamlConfiguration.loadConfiguration(file);
+                String menuType = menuConfig.getString("menu-type", "");
+                if (menuType.equalsIgnoreCase("search")
+                        || ConfigManager.configManager.getStringList("menu.search-gui.menu").contains(substring)) {
+                    if (!UltimateShop.freeVersion) {
+                        new ObjectSearchMenu(substring, menuConfig);
+                    }
+                } else if (menuType.equalsIgnoreCase("favourite") || menuType.equalsIgnoreCase("favorite")  ||
+                        ConfigManager.configManager.getStringList("menu.favourite-gui.menu").contains(substring)) {
+                    if (!UltimateShop.freeVersion) {
+                        new ObjectFavouriteMenu(substring, menuConfig);
+                    }
+                } else {
+                    new ObjectMenu(substring, menuConfig);
+                }
+            }
+        }
+    }
+
+    private void initSellStickConfigs() {
+        File dir = new File(UltimateShop.instance.getDataFolder(), "sell_sticks");
+        if (!dir.exists()) {
+            dir.mkdir();
+        }
+        for (File file : CommonUtil.getYamlFiles(dir)) {
+            String fileName = file.getName();
+            if (fileName.endsWith(".yml")) {
+                String substring = fileName.substring(0, fileName.length() - 4);
+                sellStickMap.put(substring, new ObjectSellStick(substring, YamlConfiguration.loadConfiguration(file)));
+            }
+        }
+    }
+
+    private void initSellChestConfigs() {
+        File dir = new File(UltimateShop.instance.getDataFolder(), "sell_chests");
+        if (!dir.exists()) {
+            dir.mkdir();
+        }
+        for (File file : CommonUtil.getYamlFiles(dir)) {
+            String fileName = file.getName();
+            if (fileName.endsWith(".yml")) {
+                String substring = fileName.substring(0, fileName.length() - 4);
+                sellChestMap.put(substring, new ObjectSellChest(substring, YamlConfiguration.loadConfiguration(file)));
+            }
+        }
+    }
+
+    private void initRandomPlaceholder() {
+        File dir = new File(UltimateShop.instance.getDataFolder(), "random_placeholders");
+        if (!dir.exists()) {
+            dir.mkdir();
+        }
+        for (File file : CommonUtil.getYamlFiles(dir)) {
+            String fileName = file.getName();
+            if (fileName.endsWith(".yml")) {
+                String substring = fileName.substring(0, fileName.length() - 4);
+                randomPlaceholders.put(substring, new ObjectRandomPlaceholder(substring, YamlConfiguration.loadConfiguration(file)));
+            }
+        }
+
+        // Legacy Support
+        if (randomPlaceholders.isEmpty()) {
+            ConfigurationSection tempVal1 = config.getConfigurationSection("placeholder.random");
+            if (tempVal1 == null) {
+                return;
+            }
+            for (String key : tempVal1.getKeys(false)) {
+                if (!randomPlaceholders.containsKey(key)) {
+                    randomPlaceholders.put(key, new ObjectRandomPlaceholder(key, tempVal1.getConfigurationSection(key)));
+                }
+            }
+        }
+    }
+
+    private void initConditionalPlaceholder() {
+        File dir = new File(UltimateShop.instance.getDataFolder(), "conditional_placeholders");
+        if (!dir.exists()) {
+            dir.mkdir();
+        }
+        for (File file : CommonUtil.getYamlFiles(dir)) {
+            String fileName = file.getName();
+            if (fileName.endsWith(".yml")) {
+                String substring = fileName.substring(0, fileName.length() - 4);
+                conditionalPlaceholders.put(substring, new ObjectConditionalPlaceholder(substring, YamlConfiguration.loadConfiguration(file)));
+            }
+        }
+    }
+
+    private void initCustomPlaceholder() {
+        File dir = new File(UltimateShop.instance.getDataFolder(), "custom_placeholders");
+        if (!dir.exists()) {
+            dir.mkdir();
+        }
+        for (File file : CommonUtil.getYamlFiles(dir)) {
+            String fileName = file.getName();
+            if (fileName.endsWith(".yml")) {
+                String substring = fileName.substring(0, fileName.length() - 4);
+                customPlaceholders.put(substring, new ObjectCustomPlaceholder(substring, YamlConfiguration.loadConfiguration(file)));
+            }
+        }
+    }
+
+    public void loadEditorEnableConfirmConfig() {
+        editorEnableConfirmFile = new File(UltimateShop.instance.getDataFolder(), "editor-enable-confirm.yml");
+        if (!editorEnableConfirmFile.exists()) {
+            UltimateShop.instance.saveResource("editor-enable-confirm.yml", false);
+        }
+        editorEnableConfirmConfig = YamlConfiguration.loadConfiguration(editorEnableConfirmFile);
+    }
+
+    public File getEditorEnableConfirmFile() {
+        if (editorEnableConfirmFile == null) {
+            loadEditorEnableConfirmConfig();
+        }
+        return editorEnableConfirmFile;
+    }
+
+    public boolean isEditorConfirmedEnabled() {
+        loadEditorEnableConfirmConfig();
+        return editorEnableConfirmConfig.getBoolean("confirmations.understand-testing-status")
+                && editorEnableConfirmConfig.getBoolean("confirmations.backed-up-data-folder")
+                && editorEnableConfirmConfig.getBoolean("confirmations.read-related-wiki")
+                && editorEnableConfirmConfig.getBoolean("confirmations.accept-possible-errors")
+                && editorEnableConfirmConfig.getBoolean("confirmations.enable-editor");
+    }
+
+    public ObjectShop getShop(String fileName) {
+        if (fileName == null) {
+            return null;
+        }
+        ObjectShop shop = shopConfigs.get(fileName);
+        if (shop == null) {
+            return shopConfigs.get(fileName.replace('-', '_'));
+        }
+        return shop;
+    }
+
+    public Collection<ObjectShop> getShops() {
+        return shopConfigs.values();
+    }
+
+    public ObjectSharedUseTimes getSharedUseTimes(String id) {
+        if (id == null) {
+            return null;
+        }
+        return sharedUseTimesMap.get(id);
+    }
+
+    public List<ObjectShop> getShopList() {
+        List<ObjectShop> resultShops = new ArrayList<>();
+        for (String key : shopConfigs.keySet()) {
+            resultShops.add(shopConfigs.get(key));
+        }
+        return resultShops;
+    }
+
+    public List<String> getStringList(String path) {
+        return config.getStringList(path);
+    }
+
+    public List<String> getStringList(Player player, String path) {
+        List<String> tempVal1 = config.getStringList(path);
+        if (tempVal1.contains("{lang}")) {
+            List<String> tempVal2 = LanguageManager.languageManager.getStringListText(player, "override-lang." + path);
+            if (tempVal2 != null) {
+                return tempVal2;
+            }
+        }
+        return tempVal1;
+    }
+
+    public List<String> getStringListOrDefault(String originalPath, String newPath) {
+        if (config.getStringList(originalPath).isEmpty()) {
+            return getStringList(newPath);
+        }
+        return getStringList(originalPath);
+    }
+
+    public List<String> getStringListOrDefault(Player player, String originalPath, String newPath) {
+        if (config.getStringList(originalPath).isEmpty()) {
+            return getStringList(player, newPath);
+        }
+        return getStringList(player, originalPath);
+    }
+
+    public List<Integer> getIntList(String path) {
+        return config.getIntegerList(path);
+    }
+
+    public boolean getBoolean(String path) {
+        return config.getBoolean(path);
+    }
+
+    public boolean getBooleanOrDefault(String originalPath, String newPath) {
+        return config.getBoolean(originalPath, config.getBoolean(newPath, false));
+    }
+
+    public int getInt(String path, int defaultValue) {
+        return config.getInt(path, defaultValue);
+    }
+
+    public int getIntWithPAPI(Player player, String path, String defaultValue) {
+        return Integer.parseInt(TextUtil.withPAPI(config.getString(path, defaultValue), player));
+    }
+
+    public int getIntOrDefault(String originalPath, String newPath, int defaultValue) {
+        return config.getInt(originalPath, config.getInt(newPath, defaultValue));
+    }
+
+    public long getLong(String path, long defaultValue) {
+        return config.getLong(path, defaultValue);
+    }
+
+    public double getDouble(String path, double defaultValue) {
+        return config.getDouble(path, defaultValue);
+    }
+
+    public ConfigurationSection getSection(String path) {
+        return config.getConfigurationSection(path);
+    }
+
+    public ConfigurationSection getSectionOrDefault(String originalPath, String newPath) {
+        ConfigurationSection tempVal1 = config.getConfigurationSection(originalPath);
+        if (tempVal1 == null) {
+            return config.getConfigurationSection(newPath);
+        }
+        return tempVal1;
+    }
+    public String getString(String path, String... args) {
+        String s = config.getString(path);
+        if (s == null) {
+            if (args.length == 0) {
+                return null;
+            }
+            s = args[0];
+        }
+        for (int i = 1 ; i < args.length ; i += 2) {
+            String var = "{" + args[i] + "}";
+            if (args[i + 1] == null) {
+                s = s.replace(var, "");
+            } else {
+                s = s.replace(var, args[i + 1]);
+            }
+        }
+        return s.replace("{plugin_folder}", String.valueOf(UltimateShop.instance.getDataFolder()));
+    }
+
+    public String getStringWithLang(Player player, String path, String... args) {
+        String tempVal1 = getString(path, args);
+        if (tempVal1.equalsIgnoreCase("{lang}")) {
+            String tempVal2 = LanguageManager.languageManager.getStringText(player, "override-lang." + path, args);
+            if (tempVal2 != null) {
+                return tempVal2;
+            }
+        }
+        return tempVal1;
+    }
+
+    public String getStringOrDefault(String originalPath, String newPath, String defaultValue) {
+        return config.getString(originalPath, config.getString(newPath, defaultValue));
+    }
+
+    public String getClickAction(ClickType type, AbstractButton button) {
+        ConfigurationSection tempVal1 = button.getButtonConfig().getConfigurationSection("click-event");;
+        if (tempVal1 == null) {
+            tempVal1 = config.getConfigurationSection("menu.click-event");
+            if (tempVal1 == null) {
+                return "none";
+            }
+        }
+        for (String s : tempVal1.getKeys(false)) {
+            for (String t : tempVal1.getString(s).split(";;")) {
+                if (t.equals(type.name())){
+                    return s;
+                }
+            }
+        }
+        return "none";
+    }
+
+    public boolean containsClickAction(String clickEvent) {
+        ConfigurationSection clickEventSection = ConfigManager.configManager.getSection("menu.click-event");
+        if (clickEventSection == null) {
+            return false;
+        }
+        return clickEventSection.contains(clickEvent);
+    }
+
+    public ObjectRandomPlaceholder getRandomPlaceholder(String id) {
+        return randomPlaceholders.get(id);
+    }
+
+    public Collection<ObjectRandomPlaceholder> getRandomPlaceholders() {
+        return randomPlaceholders.values();
+    }
+
+    public ObjectCustomPlaceholder getCustomPlaceholder(String id) {
+        return customPlaceholders.get(id);
+    }
+
+    public Collection<ObjectCustomPlaceholder> getCustomPlaceholders() {
+        return customPlaceholders.values();
+    }
+
+    public ObjectConditionalPlaceholder getConditionalPlaceholder(String id) {
+        return conditionalPlaceholders.get(id);
+    }
+
+    public Collection<ObjectConditionalPlaceholder> getConditionalPlaceholders() {
+        return conditionalPlaceholders.values();
+    }
+
+    public ObjectSellStick getSellStick(String id) {
+        return sellStickMap.get(id);
+    }
+
+    public ObjectSellStick getSellStickID(ItemStack item) {
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null || !meta.getPersistentDataContainer().has(SELL_STICK_ID, PersistentDataType.STRING)) {
+            return null;
+        }
+        String id = meta.getPersistentDataContainer().get(SELL_STICK_ID, PersistentDataType.STRING);
+        return getSellStick(id);
+    }
+
+    public Collection<ObjectSellStick> getSellSticks() {
+        return sellStickMap.values();
+    }
+
+    public ObjectSellChest getSellChest(String id) {
+        return sellChestMap.get(id);
+    }
+
+    public ObjectSellChest getSellChestID(ItemStack item) {
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null || !meta.getPersistentDataContainer().has(SELL_CHEST_ID, PersistentDataType.STRING)) {
+            return null;
+        }
+        String id = meta.getPersistentDataContainer().get(SELL_CHEST_ID, PersistentDataType.STRING);
+        return getSellChest(id);
+    }
+
+    public Collection<ObjectSellChest> getSellChests() {
+        return sellChestMap.values();
+    }
+}

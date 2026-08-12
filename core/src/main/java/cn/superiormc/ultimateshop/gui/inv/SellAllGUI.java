@@ -1,0 +1,115 @@
+package cn.superiormc.ultimateshop.gui.inv;
+
+import cn.superiormc.ultimateshop.UltimateShop;
+import cn.superiormc.ultimateshop.api.ShopHelper;
+import cn.superiormc.ultimateshop.gui.InvGUI;
+import cn.superiormc.ultimateshop.managers.ConfigManager;
+import cn.superiormc.ultimateshop.managers.LanguageManager;
+import cn.superiormc.ultimateshop.methods.Product.SellProductMethod;
+import cn.superiormc.ultimateshop.methods.ProductTradeStatus;
+import cn.superiormc.ultimateshop.objects.buttons.ObjectItem;
+import cn.superiormc.ultimateshop.objects.items.AbstractSingleThing;
+import cn.superiormc.ultimateshop.objects.items.ItemStorage;
+import cn.superiormc.ultimateshop.objects.items.ThingMode;
+import cn.superiormc.ultimateshop.objects.items.prices.ObjectPrices;
+import cn.superiormc.ultimateshop.utils.CommonUtil;
+import org.bukkit.entity.Player;
+import org.bukkit.event.inventory.ClickType;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
+
+import java.math.BigDecimal;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
+
+public class SellAllGUI extends InvGUI {
+
+    private SellAllGUI(Player owner) {
+        super(owner);
+    }
+
+    @Override
+    public void constructGUI() {
+        title = ConfigManager.configManager.getStringWithLang(player, "menu.sell-all.title");
+        if (Objects.isNull(inv)) {
+            inv = UltimateShop.methodUtil.createNewInv(player, ConfigManager.configManager.getInt
+                            ("menu.sell-all.size", 54), title, this);
+        }
+    }
+
+    @Override
+    public boolean clickEventHandle(Inventory inventory, ClickType type, int slot) {
+        return ConfigManager.configManager.getIntList("menu.sell-all.black-slots").contains(slot);
+    }
+
+    @Override
+    public boolean closeEventHandle(Inventory inventory) {
+        if (runTask != null) {
+            runTask.cancel();
+        }
+        if (player == null) {
+            return true;
+        }
+        int soldAmount = 0;
+        Map<AbstractSingleThing, BigDecimal> result = new HashMap<>();
+        boolean hasActionExecuted = false;
+        for (String shop : ConfigManager.configManager.shopConfigs.keySet()) {
+            for (ObjectItem products : ConfigManager.configManager.getShop(shop).getProductListNotHidden(player)) {
+                if (ConfigManager.configManager.getStringListOrDefault(player, "menu.sell-all.ignore-items",
+                        "sell.sell-all.ignore-items").contains(shop + ";;" + products.getProduct())) {
+                    continue;
+                }
+                ProductTradeStatus status = SellProductMethod.startSell(ItemStorage.of(inv),
+                        products,
+                        player,
+                        false,
+                        false,
+                        true,
+                        hasActionExecuted,
+                        false,
+                        1,
+                        1);
+                if (status.getStatus() == ProductTradeStatus.Status.DONE && status.getGiveResult() != null) {
+                    result.putAll(status.getGiveResult().getResultMap());
+                    soldAmount = soldAmount + status.getAmount() * products.getDisplayItemObject().getAmountPlaceholder(player);
+                }
+                if (!products.getSellAction().isEmpty()) {
+                    hasActionExecuted = true;
+                }
+            }
+        }
+        if (!result.isEmpty()) {
+            LanguageManager.languageManager.sendStringText(player, "start-sell-all", "amount", String.valueOf(soldAmount),
+                    "multiplier", String.valueOf(ShopHelper.getSellMultiplier(player)),
+                    "reward", ObjectPrices.getDisplayNameInLine(player, 1,
+                    result, ThingMode.ALL, true
+            ));
+        }
+        ItemStack[] storage = Arrays.stream(inv.getStorageContents()).filter(Objects::nonNull).toArray(ItemStack[]::new);
+        CommonUtil.giveOrDrop(player, storage);
+        return super.closeEventHandle(inventory);
+    }
+
+    @Override
+    public boolean dragEventHandle(Map<Integer, ItemStack> newItems) {
+        player.updateInventory();
+        for (int i : newItems.keySet()) {
+            if (ConfigManager.configManager.getIntList("menu.sell-all.black-slots").contains(i)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public boolean getChangeable() {
+        return true;
+    }
+
+    public static void openGUI(Player player) {
+        SellAllGUI gui = new SellAllGUI(player);
+        gui.openGUI(true);
+    }
+}

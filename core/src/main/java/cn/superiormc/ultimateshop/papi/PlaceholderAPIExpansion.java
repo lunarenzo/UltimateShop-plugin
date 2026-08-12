@@ -1,0 +1,177 @@
+package cn.superiormc.ultimateshop.papi;
+
+import cn.superiormc.ultimateshop.UltimateShop;
+import cn.superiormc.ultimateshop.api.ShopHelper;
+import cn.superiormc.ultimateshop.managers.CacheManager;
+import cn.superiormc.ultimateshop.managers.ConfigManager;
+import cn.superiormc.ultimateshop.managers.LanguageManager;
+import cn.superiormc.ultimateshop.objects.ObjectShop;
+import cn.superiormc.ultimateshop.objects.buttons.ObjectItem;
+import cn.superiormc.ultimateshop.objects.caches.ObjectCache;
+import cn.superiormc.ultimateshop.objects.caches.ObjectUseTimesCache;
+import cn.superiormc.ultimateshop.objects.items.prices.ObjectPrices;
+import cn.superiormc.ultimateshop.utils.TextUtil;
+import me.clip.placeholderapi.expansion.PlaceholderExpansion;
+import org.bukkit.OfflinePlayer;
+import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
+import org.jetbrains.annotations.NotNull;
+
+public class PlaceholderAPIExpansion extends PlaceholderExpansion {
+
+    private final UltimateShop plugin;
+
+    @Override
+    public boolean canRegister() {
+        return true;
+    }
+
+    public PlaceholderAPIExpansion(UltimateShop plugin) {
+        this.plugin = plugin;
+    }
+
+    @NotNull
+    @Override
+    public String getAuthor() {
+        return "PQguanfang";
+    }
+
+    @NotNull
+    @Override
+    public String getIdentifier() {
+        return "ultimateshop";
+    }
+
+    @Override
+    public String getVersion() {
+        return "1.2.0";
+    }
+
+    @Override
+    public boolean persist() {
+        return true; // This is required or else PlaceholderAPI will unregister the Expansion on reload
+    }
+
+    @Override
+    public String onRequest(OfflinePlayer offlinePlayer, String params) {
+        if (offlinePlayer == null) {
+            return null;
+        }
+        Player player = offlinePlayer.getPlayer();
+        if (player == null) {
+            return null;
+        }
+        String[] args = params.split("_");
+        if (args.length < 1) {
+            return null;
+        } else if (args[0].contains("hold-buy-price")) {
+            ItemStack[] items = new ItemStack[]{player.getInventory().getItemInMainHand()};
+            return ShopHelper.getBuyPricesDisplay(items, player, 1);
+        } else if (args[0].contains("hold-sell-price")) {
+            ItemStack[] items = new ItemStack[]{player.getInventory().getItemInMainHand()};
+            return ShopHelper.getSellPricesDisplay(items, player, 1);
+        } else if (args[0].startsWith("{")) {
+            return TextUtil.parseBuiltInPlaceholder(params, player);
+        } else {
+            ObjectShop shop = ConfigManager.configManager.getShop(args[0]);
+            if (shop == null) {
+                return LanguageManager.languageManager.getStringText(player, "placeholderapi.unknown-shop");
+            }
+            ObjectItem item = shop.getProduct(args[1]);
+            if (item == null) {
+                return LanguageManager.languageManager.getStringText(player, "placeholderapi.unknown-product");
+            }
+            ObjectCache cache = CacheManager.cacheManager.getObjectCache(player);
+            if (cache == null) {
+                return "ERROR: Can not found player cache.";
+            }
+            ObjectUseTimesCache playerTimesCache = cache.getUseTimesCache(item);
+            if (playerTimesCache == null) {
+                return "ERROR: Can not found player cache.";
+            }
+            ObjectUseTimesCache serverTimesCache = CacheManager.cacheManager.serverCache.getUseTimesCache(item);
+            if (serverTimesCache == null) {
+                return "ERROR: Can not found server cache.";
+            }
+            String tempVal1 = args[2];
+            if (tempVal1.startsWith("{") && tempVal1.endsWith("}")) {
+                tempVal1 = tempVal1.substring(1, tempVal1.length() - 1);
+            }
+            switch (tempVal1) {
+                case "buy-price":
+                    return TextUtil.parse(ObjectPrices.getDisplayNameInLine(player,
+                            1,
+                            item.getBuyPrice().take(player.getInventory(), player, playerTimesCache.getBuyUseTimes(), 1, true).getResultMap(),
+                            item.getBuyPrice().getMode(),
+                            !ConfigManager.configManager.getBoolean("placeholder.status.can-used-everywhere")));
+                case "sell-price":
+                    return TextUtil.parse(ObjectPrices.getDisplayNameInLine(player,
+                            1,
+                            item.getSellPrice().give(player, playerTimesCache.getBuyUseTimes(), 1).getResultMapForSellMultiplierDisplay(player),
+                            item.getSellPrice().getMode(),
+                            !ConfigManager.configManager.getBoolean("placeholder.status.can-used-everywhere")));
+                case "buy-limit-player":
+                    return String.valueOf(item.getPlayerBuyLimit(player));
+                case "sell-limit-player":
+                    return String.valueOf(item.getPlayerSellLimit(player));
+                case "buy-limit-server":
+                    return String.valueOf(item.getServerBuyLimit(player));
+                case "sell-limit-server":
+                    return String.valueOf(item.getServerSellLimit(player));
+                case "buy-times-player":
+                    return String.valueOf(playerTimesCache.getBuyUseTimes());
+                case "sell-times-player":
+                    return String.valueOf(playerTimesCache.getSellUseTimes());
+                case "buy-total-player":
+                    return String.valueOf(playerTimesCache.getTotalBuyUseTimes());
+                case "sell-total-player":
+                    return String.valueOf(playerTimesCache.getTotalSellUseTimes());
+                case "buy-refresh-player":
+                    return String.valueOf(playerTimesCache.getBuyRefreshTimeDisplayName(player));
+                case "sell-refresh-player":
+                    return String.valueOf(playerTimesCache.getSellRefreshTimeDisplayName(player));
+                case "buy-next-player":
+                    return String.valueOf(playerTimesCache.getBuyRefreshTimeNextName(player));
+                case "sell-next-player":
+                    return String.valueOf(playerTimesCache.getSellRefreshTimeNextName(player));
+                case "buy-times-server":
+                    return String.valueOf(serverTimesCache.getBuyUseTimes());
+                case "sell-times-server":
+                    return String.valueOf(serverTimesCache.getSellUseTimes());
+                case "buy-total-server":
+                    return String.valueOf(serverTimesCache.getTotalBuyUseTimes());
+                case "sell-total-server":
+                    return String.valueOf(serverTimesCache.getTotalSellUseTimes());
+                case "buy-refresh-server":
+                    return String.valueOf(serverTimesCache.getBuyRefreshTimeDisplayName(player));
+                case "sell-refresh-server":
+                    return String.valueOf(serverTimesCache.getSellRefreshTimeDisplayName(player));
+                case "buy-next-server":
+                    return String.valueOf(serverTimesCache.getBuyRefreshTimeNextName(player));
+                case "sell-next-server":
+                    return String.valueOf(serverTimesCache.getSellRefreshTimeNextName(player));
+                case "last-buy-player":
+                    return playerTimesCache.getBuyLastTimeName();
+                case "last-sell-player":
+                    return playerTimesCache.getSellLastTimeName();
+                case "last-buy-server":
+                    return serverTimesCache.getBuyLastTimeName();
+                case "last-sell-server":
+                    return serverTimesCache.getSellLastTimeName();
+                case "last-buy-reset-time-player":
+                    return playerTimesCache.getBuyLastResetTimeName();
+                case "last-sell-reset-time-player":
+                    return playerTimesCache.getSellLastResetTimeName();
+                case "last-buy-reset-time-server":
+                    return serverTimesCache.getBuyLastResetTimeName();
+                case "last-sell-reset-time-server":
+                    return serverTimesCache.getSellLastResetTimeName();
+                case "item-name":
+                    return item.getDisplayName(player);
+                case "item-material":
+                    return item.getDisplayItem(player).getType().toString();
+            }
+        }
+        return null;
+    }
+}

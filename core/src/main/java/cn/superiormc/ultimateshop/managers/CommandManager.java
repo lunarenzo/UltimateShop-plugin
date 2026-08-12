@@ -1,0 +1,68 @@
+package cn.superiormc.ultimateshop.managers;
+
+import cn.superiormc.ultimateshop.UltimateShop;
+import cn.superiormc.ultimateshop.commands.*;
+import cn.superiormc.ultimateshop.commands.SubEditor;
+import org.bukkit.Bukkit;
+
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Objects;
+
+public class CommandManager {
+
+    public static CommandManager commandManager;
+
+    private final Map<String, AbstractCommand> registeredCommands = new HashMap<>();
+
+    public CommandManager(){
+        commandManager = this;
+        registerBukkitCommands();
+        registerObjectCommand();
+    }
+
+    private void registerBukkitCommands(){
+        Objects.requireNonNull(Bukkit.getPluginCommand("ultimateshop")).setExecutor(new MainCommand());
+        Objects.requireNonNull(Bukkit.getPluginCommand("ultimateshop")).setTabCompleter(new MainCommandTab());
+    }
+
+    private void registerObjectCommand() {
+       registerNewSubCommand(new SubSaveItem());
+       registerNewSubCommand(new SubMenu());
+       registerNewSubCommand(new SubQuickSell());
+       registerNewSubCommand(new SubQuickBuy());
+       registerNewSubCommand(new SubReload());
+       registerNewSubCommand(new SubGiveSellStick());
+       if (!UltimateShop.isFolia && ConfigManager.configManager.getBoolean("sell.sell-chest.enabled")) {
+           registerNewSubCommand(new SubGiveSellChest());
+       }
+       registerNewSubCommand(new SubGiveSaveItem());
+       registerNewSubCommand(new SubSellAll());
+       registerNewSubCommand(new SubAddBuyTimes());
+       registerNewSubCommand(new SubAddSellTimes());
+       registerNewSubCommand(new SubSetSellTimes());
+       registerNewSubCommand(new SubSetBuyTimes());
+       registerNewSubCommand(new SubHelp());
+       registerNewSubCommand(new SubGenerateItemFormat());
+       registerNewSubCommand(new SubGetPlaceholderValue());
+       registerNewSubCommand(new SubResetRandomPlaceholder());
+       registerNewSubCommand(new SubSetRandomPlaceholder());
+       registerNewSubCommand(new SubAddCustomPlaceholder());
+       registerNewSubCommand(new SubSetCustomPlaceholder());
+       registerNewSubCommand(new SubSearch());
+       registerNewSubCommand(new SubSellHand());
+       registerNewSubCommand(new SubSellAllHand());
+       registerNewSubCommand(new SubUpdateGUI());
+       registerNewSubCommand(new SubUpdateGUITitle());
+       registerNewSubCommand(new SubEditor());
+    }
+
+    public Map<String, AbstractCommand> getSubCommandsMap() {
+        return registeredCommands;
+    }
+
+    public void registerNewSubCommand(AbstractCommand command) {
+        registeredCommands.put(command.getId(), command);
+    }
+
+}
