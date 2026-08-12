@@ -194,7 +194,8 @@
             <groupId>io.lumine</groupId>
             <artifactId>Mythic-Dist</artifactId>
             <version>5.9.5</version>
-            <scope>provided</scope>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/lib/Mythic-Dist-5.9.5.jar</systemPath>
         </dependency>
         <dependency>
             <groupId>su.nightexpress.coinsengine</groupId>
