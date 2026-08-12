@@ -108,24 +108,34 @@ public final class UltimateShop extends JavaPlugin {
 
     @Override
     public void onDisable() {
-        ListenerManager.listenerManager.unregisterAllListener();
-        TaskManager.taskManager.cancelTask();
+        if (ListenerManager.listenerManager != null) {
+            ListenerManager.listenerManager.unregisterAllListener();
+        }
+        if (TaskManager.taskManager != null) {
+            TaskManager.taskManager.cancelTask();
+        }
         TextUtil.sendMessage(null, TextUtil.pluginPrefix() + " §fWaiting for all pending database task finished, this may freeze your server if your database is lost connection.");
         DatabaseExecutor.await();
-        if (CacheManager.cacheManager.serverCache != null) {
+        if (CacheManager.cacheManager != null && CacheManager.cacheManager.serverCache != null) {
             CacheManager.cacheManager.serverCache.shutCacheOnDisable(true);
         }
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            CacheManager.cacheManager.saveObjectCacheOnDisable(player, true);
+        if (CacheManager.cacheManager != null) {
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                CacheManager.cacheManager.saveObjectCacheOnDisable(player, true);
+            }
         }
-        DatabaseManager.databaseManager.database.onClose();
-        CacheManager.cacheManager.shutdown();
+        if (DatabaseManager.databaseManager != null && DatabaseManager.databaseManager.database != null) {
+            DatabaseManager.databaseManager.database.onClose();
+        }
+        if (CacheManager.cacheManager != null) {
+            CacheManager.cacheManager.shutdown();
+        }
         DatabaseExecutor.shutdown();
-        if (HookManager.hookManager.papi != null) {
+        if (HookManager.hookManager != null && HookManager.hookManager.papi != null) {
             HookManager.hookManager.papi.unregister();
             HookManager.hookManager.papi = null;
         }
-        if (BungeeCordManager.enableThis()) {
+        if (BungeeCordManager.enableThis() && BungeeCordManager.bungeeCordManager != null) {
             BungeeCordManager.bungeeCordManager.disable();
         }
         if (metrics != null) {
